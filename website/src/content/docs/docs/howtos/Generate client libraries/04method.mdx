@@ -118,6 +118,10 @@ To set global emitters parameters, read the documentation of [emitters configura
 
 For fine tuning, the set of decorators `@protocolAPI` and `@convenientAPI` can be used. They take a required boolean as parameter.
 
+:::note
+`@convenientAPI` and `@protocolAPI` must be applied with a language scope of `"java"` or `"csharp"`. Using them without a scope or with an invalid scope produces a `decorator-requires-scope` warning.
+:::
+
 #### Shifting the generation of protocol and convenience on and off
 
 This can be achieved with the augment operator and the emitter package
@@ -130,7 +134,8 @@ import "@azure-tools/typespec-client-generator-core";
 
 using Azure.ClientGenerator.Core;
 
-@@convenientAPI(PetStoreNamespace.GetModel, false);
+@@convenientAPI(PetStoreNamespace.GetModel, false, "csharp");
+@@convenientAPI(PetStoreNamespace.GetModel, false, "java");
 ```
 
 ```python
