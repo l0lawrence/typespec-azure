@@ -12,9 +12,9 @@ For advanced paging, long-running, multipart or streaming operations, see the [P
 
 ### Default behaviors
 
-By default, any language code generator will generate both protocol methods and convenient methods for an operation.
+TCGC enables both protocol and convenience methods by default. The Java and C# emitters expose these as separate method layers. Other emitters may represent an operation with a single API surface instead.
 
-> **NOTE:** Python and Typescript don't have a separation of convenient/protocol methods.
+> **NOTE:** Python and TypeScript don't have a separation of convenience and protocol methods.
 
 <ClientTabs>
 
@@ -107,16 +107,16 @@ func (client *PetStoreNamespaceClient) GetModel(ctx context.Context, name string
 
 ### Customizations
 
-The detailed generation configuration of protocol and/or convenient methods that can be done:
-
-As emitters global parameters:
+Java and C# emitters support global generation parameters:
 
 - `generate-protocol-methods`: boolean flag to shift the entire generation for the process (`true` by default)
 - `generate-convenience-methods`: boolean flag to shift the entire generation for the process (`true` by default)
 
-To set global emitters parameters, read the documentation of [emitters configuration](https://microsoft.github.io/typespec/introduction/configuration#configuration-file).
+To set global emitter parameters, read the documentation of [emitter configuration](https://microsoft.github.io/typespec/introduction/configuration#configuration-file).
 
-For fine tuning, the set of decorators `@protocolAPI` and `@convenientAPI` can be used. They take a required boolean as parameter.
+Setting either option for any other language emitter produces an `unnecessary-emitter-option` warning because the option has no effect.
+
+For fine tuning, use `@protocolAPI` and `@convenientAPI`. Each takes a boolean and a language scope. The scope must apply to Java, C#, or both; omitting it or using a scope that excludes both languages produces a `decorator-requires-scope` warning.
 
 #### Shifting the generation of protocol and convenience on and off
 
