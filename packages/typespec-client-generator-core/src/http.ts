@@ -1,9 +1,9 @@
 import {
-  Diagnostic,
-  ModelProperty,
-  Operation,
-  Type,
-  Union,
+  type Diagnostic,
+  type ModelProperty,
+  type Operation,
+  type Type,
+  type Union,
   compilerAssert,
   createDiagnosticCollector,
   getEncode,
@@ -14,11 +14,11 @@ import { $ } from "@typespec/compiler/typekit";
 import { isEvents } from "@typespec/events";
 import { unsafe_getEventDefinitions as getEventDefinitions } from "@typespec/events/experimental";
 import {
-  HttpOperation,
-  HttpOperationHeaderParameter,
-  HttpOperationParameter,
-  HttpOperationPathParameter,
-  HttpOperationQueryParameter,
+  type HttpOperation,
+  type HttpOperationHeaderParameter,
+  type HttpOperationParameter,
+  type HttpOperationPathParameter,
+  type HttpOperationQueryParameter,
   Visibility,
   getCookieParamOptions,
   getHeaderFieldName,
@@ -32,11 +32,11 @@ import {
   isPathParam,
   isQueryParam,
 } from "@typespec/http";
-import { StreamMetadata, getStreamMetadata } from "@typespec/http/experimental";
+import { type StreamMetadata, getStreamMetadata } from "@typespec/http/experimental";
 import { isTerminalEvent } from "@typespec/sse";
 import { camelCase } from "change-case";
 import { getResponseAsBool, isInScope, shouldOmitSlashFromEmptyRoute } from "./decorators.js";
-import {
+import type {
   CollectionFormat,
   SdkBodyParameter,
   SdkClientType,
@@ -92,6 +92,8 @@ import {
   getTypeSpecBuiltInType,
   isReadOnly,
 } from "./types.js";
+
+const defaultFileContentType = "application/octet-stream";
 
 /**
  * Build serialization options from content types.
@@ -333,6 +335,7 @@ function getSdkHttpParameters(
         apiVersions: getAvailableApiVersions(context, tspBody.type, httpOperation.operation),
         type,
         optional: isHttpBodySpread(tspBody) ? false : (tspBody.property?.optional ?? false), // optional is always false for spread body
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- kept for backward compatibility alongside methodParameterSegments
         correspondingMethodParams: [],
         methodParameterSegments: [],
         crossLanguageDefinitionId: `${getCrossLanguageDefinitionId(context, httpOperation.operation)}.body`,
@@ -459,6 +462,14 @@ function createContentTypeOrAcceptHeader(
   bodyObject: SdkBodyParameter | SdkHttpResponse | SdkHttpErrorResponse,
 ): Omit<SdkMethodParameter, "kind"> {
   const name = bodyObject.kind === "body" ? "contentType" : "accept";
+  // @typespec/http uses */* as the unconstrained File content-type marker. For
+  // generated request clients, expose that as an optional Content-Type parameter
+  // with the binary payload default instead of sending */* as a concrete value.
+  const isDefaultFileContentType =
+    bodyObject.kind === "body" &&
+    httpOperation.parameters.body?.bodyKind === "file" &&
+    bodyObject.contentTypes?.length === 1 &&
+    bodyObject.contentTypes[0] === "*/*";
   let type: SdkType = getTypeSpecBuiltInType(context, "string");
   // Honor the content types from the HTTP library result.
   // For a single content type, create a constant.
@@ -471,7 +482,7 @@ function createContentTypeOrAcceptHeader(
   // should use `@sharedRoute` to split the operation per content type.
   // For File type bodies, the content type is constrained by the File type itself;
   // treat it the same as a user-defined content type/accept parameter.
-  if (bodyObject.contentTypes && bodyObject.contentTypes.length > 0) {
+  if (bodyObject.contentTypes && bodyObject.contentTypes.length > 0 && !isDefaultFileContentType) {
     const tk = $(context.program);
     context.__namingContextPath.push({
       name: httpOperation.operation.name,
@@ -522,8 +533,8 @@ function createContentTypeOrAcceptHeader(
       context.__namingContextPath.pop();
     }
   }
-  const optional = bodyObject.kind === "body" ? bodyObject.optional : false;
-  // No need for clientDefaultValue because it's a constant, it only has one value
+  const optional =
+    bodyObject.kind === "body" ? bodyObject.optional || isDefaultFileContentType : false;
   return {
     type,
     name,
@@ -533,6 +544,7 @@ function createContentTypeOrAcceptHeader(
     isApiVersionParam: false,
     onClient: false,
     optional: optional,
+    ...(isDefaultFileContentType && { clientDefaultValue: defaultFileContentType }),
     crossLanguageDefinitionId: `${getCrossLanguageDefinitionId(context, httpOperation.operation)}.${name}`,
     decorators: [],
     access: "public",

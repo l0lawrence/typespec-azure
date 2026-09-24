@@ -2,9 +2,13 @@ import {
   BrandedSdkEmitterOptions,
   UnbrandedSdkEmitterOptions,
 } from "@azure-tools/typespec-client-generator-core";
-import { JSONSchemaType } from "@typespec/compiler";
+import type { JSONSchemaType } from "@typespec/compiler";
 
 export const LIB_NAME = "@azure-tools/typespec-java";
+export const DIAGNOSTIC_DOCS_BASE_PATH = "src/diagnostics";
+export const DIAGNOSTIC_DOCS_BASE_URL =
+  "https://azure.github.io/typespec-azure/docs/emitters/clients/typespec-java/reference/diagnostics";
+export const DIAGNOSTIC_DOCS_EXCLUDED = new Set<string>();
 
 export interface DevOptions {
   "generate-code-model"?: boolean;
@@ -31,6 +35,7 @@ export interface EmitterOptions {
 
   "skip-special-headers"?: string[];
   "enable-subclient"?: boolean;
+  "max-overload"?: "model";
 
   "advanced-versioning"?: boolean;
   "api-version"?: string;
@@ -67,7 +72,6 @@ export const EmitterOptionsSchema: JSONSchemaType<EmitterOptions> = {
       nullable: true,
       default: true,
     },
-
     "enable-sync-stack": {
       type: "boolean",
       description:
@@ -170,6 +174,13 @@ export const EmitterOptionsSchema: JSONSchemaType<EmitterOptions> = {
     //   items: { type: "string" },
     //   nullable: true,
     // },
+    // "remove-model": {
+    //   type: ["string", "array"],
+    //   description:
+    //     "Do not generate the model classes. Format should be in array form. This option is for management-plane SDK.",
+    //   items: { type: "string" },
+    //   nullable: true,
+    // },
     // "preserve-model": {
     //   type: ["string", "array"],
     //   description:
@@ -222,6 +233,13 @@ export const EmitterOptionsSchema: JSONSchemaType<EmitterOptions> = {
         "When set to `true`, the generated SDK uses `getter` method to access child clients. Default value is `false`.",
       nullable: true,
       default: false,
+    },
+    "max-overload": {
+      type: "string",
+      description:
+        "When set to `model`, generate the maximum set of model-based convenience method overloads for Azure clients.",
+      nullable: true,
+      enum: ["model"],
     },
 
     // versioning

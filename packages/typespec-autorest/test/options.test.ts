@@ -1,14 +1,14 @@
 import { resolvePath } from "@typespec/compiler";
 import {
-  EmitterTesterInstance,
+  type EmitterTesterInstance,
   expectDiagnosticEmpty,
   expectDiagnostics,
   resolveVirtualPath,
-  TestEmitterCompileResult,
+  type TestEmitterCompileResult,
 } from "@typespec/compiler/testing";
 import { deepStrictEqual, ok, strictEqual } from "assert";
 import { beforeEach, describe, it } from "vitest";
-import { AutorestEmitterOptions } from "../src/lib.js";
+import type { AutorestEmitterOptions } from "../src/lib.js";
 import { ApiTester, compileOpenAPI, ignoreDiagnostics, Tester } from "./test-host.js";
 
 let runner: EmitterTesterInstance<TestEmitterCompileResult>;
@@ -150,6 +150,74 @@ op test(): void;
     );
     ok(versionedRunner.fs.fs.has(resolveVirtualPath("./my-output/stable/v1/openapi.json")));
     ok(versionedRunner.fs.fs.has(resolveVirtualPath("./my-output/stable/v2/openapi.json")));
+  });
+
+  it("sanitizes path separators and traversal in {version}", async () => {
+    await runner.compile(
+      `
+      @versioned(Versions)
+      @service namespace Service {
+        enum Versions { v1: "../../../escaped" }
+      }
+      `,
+      {
+        compilerOptions: {
+          options: {
+            "@azure-tools/typespec-autorest": {
+              "emitter-output-dir": emitterOutputDir,
+              "output-file": "{version}/openapi.json",
+            },
+          },
+        },
+      },
+    );
+
+    ok(runner.fs.fs.has(resolvePath(emitterOutputDir, ".._.._.._escaped/openapi.json")));
+  });
+
+  it("sanitizes versions made only of dots", async () => {
+    await runner.compile(
+      `
+      @versioned(Versions)
+      @service namespace Service {
+        enum Versions { v1: ".." }
+      }
+      `,
+      {
+        compilerOptions: {
+          options: {
+            "@azure-tools/typespec-autorest": {
+              "emitter-output-dir": emitterOutputDir,
+              "output-file": "{version}/openapi.json",
+            },
+          },
+        },
+      },
+    );
+
+    ok(runner.fs.fs.has(resolvePath(emitterOutputDir, "_/openapi.json")));
+  });
+
+  it("sanitizes path separators in {service-name}", async () => {
+    await runner.compile(
+      `
+      @service namespace \`../../escaped\` {}
+      @service namespace Service2 {}
+      `,
+      {
+        compilerOptions: {
+          options: {
+            "@azure-tools/typespec-autorest": {
+              "emitter-output-dir": emitterOutputDir,
+              "output-file": "{service-name}.json",
+            },
+          },
+        },
+      },
+    );
+
+    ok(runner.fs.fs.has(resolvePath(emitterOutputDir, ".._.._escaped.json")));
+    ok(runner.fs.fs.has(resolvePath(emitterOutputDir, "Service2.json")));
   });
 });
 

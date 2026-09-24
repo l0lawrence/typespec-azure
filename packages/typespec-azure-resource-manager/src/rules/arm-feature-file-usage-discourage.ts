@@ -1,4 +1,4 @@
-import { createRule, fileRef, Namespace } from "@typespec/compiler";
+import { createRule, fileRef, type Namespace } from "@typespec/compiler";
 import { getFeatureFileSet } from "../resource.js";
 
 export const armFeatureFileUsageDiscourage = createRule({
@@ -13,7 +13,7 @@ export const armFeatureFileUsageDiscourage = createRule({
   create(context) {
     return {
       namespace: (namespace: Namespace) => {
-        if (getFeatureFileSet(context.program, namespace)) {
+        if (getFeatureFileSet(context.program, namespace) !== undefined) {
           context.reportDiagnostic({
             code: "arm-feature-file-usage-discourage",
             target: namespace,

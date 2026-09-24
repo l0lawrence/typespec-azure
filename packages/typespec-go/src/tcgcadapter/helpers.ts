@@ -27,72 +27,6 @@ export interface XMLSourceInfo {
 }
 
 /**
- * creates XMLInfo for models and model fields.
- * returns undefined if no XMLInfo is required.
- *
- * @param src the source information to adapt
- * @returns XMLInfo or undefined
- */
-export function adaptXMLInfo(src: XMLSourceInfo): go.XMLInfo | undefined {
-  const xmlInfo = new go.XMLInfo();
-  let returnXMLInfo = false;
-
-  if (src.xml?.name && src.xml.name !== src.goTypeName) {
-    xmlInfo.name = src.xml.name;
-    returnXMLInfo = true;
-  }
-
-  if (src.xml?.attribute) {
-    xmlInfo.attribute = true;
-    returnXMLInfo = true;
-  }
-  if (src.type.kind === "slice") {
-    const elementXMLInfo = hasXMLInfo(src.type.elementType);
-    if (src.xml?.unwrapped === false) {
-      if (src.xml.itemsName) {
-        xmlInfo.wraps = src.xml.itemsName;
-      } else if (elementXMLInfo?.name) {
-        xmlInfo.wraps = elementXMLInfo.name;
-      } else if (src.orTypeName !== src.goTypeName) {
-        xmlInfo.wraps = src.orTypeName;
-      } else {
-        xmlInfo.wraps = src.goTypeName;
-      }
-      returnXMLInfo = true;
-    } else if (elementXMLInfo?.name) {
-      xmlInfo.name = elementXMLInfo.name;
-      returnXMLInfo = true;
-    } else if (src.orTypeName !== src.goTypeName) {
-      // we can land here if the Go-specific type name was renamed to remove stuttering
-      xmlInfo.name = src.orTypeName;
-      returnXMLInfo = true;
-    }
-  } else if (src.xml?.unwrapped && src.type.kind === "string") {
-    // an unwrapped string means it's text
-    xmlInfo.text = true;
-    // the ",chardata" tag is mutually exclusive
-    // with a name tag so clear it if set
-    xmlInfo.name = undefined;
-    returnXMLInfo = true;
-  }
-
-  return returnXMLInfo ? xmlInfo : undefined;
-}
-
-/**
- * returns any XMLInfo available for the provided type or undefined
- *
- * @param type the type to inspect for XMLInfo
- * @returns the XMLInfo or undefined
- */
-export function hasXMLInfo(type: go.WireType): go.XMLInfo | undefined {
-  if ("xml" in type) {
-    return type.xml;
-  }
-  return undefined;
-}
-
-/**
  * returns true if model is a polymorphic root type.
  *
  * @param model the model to inspect
@@ -110,31 +44,32 @@ export function isPolymorphicRoot(model: tcgc.SdkModelType): boolean {
   }
 }
 
-/**
- * returns true if the specified type doesn't need to be pointer-to-type
- * because it's implicitly nil-able.
- *
- * @param type the type to inspect
- * @returns true if the type is implicitly nil-able
- */
-export function isTypePassedByValue(type: tcgc.SdkType): boolean {
-  if (type.kind === "nullable") {
-    type = type.type;
+/** narrows type to a PtrType within the conditional block */
+export function isPtrType<T extends Exclude<go.WireType, go.Ptr>>(
+  type: T,
+): type is Extract<T, go.PtrType> {
+  switch (type.kind) {
+    case "constant":
+    case "etag":
+    case "literal":
+    case "model":
+    case "multipartContent":
+    case "polymorphicModel":
+    case "scalar":
+    case "string":
+    case "time":
+    case "unionStruct":
+      return true;
+    default:
+      return false;
   }
-  return (
-    type.kind === "unknown" ||
-    type.kind === "array" ||
-    type.kind === "bytes" ||
-    type.kind === "dict" ||
-    (type.kind === "model" && isPolymorphicRoot(type))
-  );
 }
 
 /** contains the set of client options */
 const clientOptionKinds = [
+  "emitContentTypeHeader",
   "monomorphicResponseFieldName",
   "omitSerdeMethods",
-  "preserveContentTypeHeader",
   "responseEnvelopeName",
 ] as const;
 export type ClientOptionKind = (typeof clientOptionKinds)[number];
@@ -177,8 +112,8 @@ export function getClientOption<T extends boolean | string>(
       default:
         // this branch is currently all method types
         valid =
+          optionName === "emitContentTypeHeader" ||
           optionName === "monomorphicResponseFieldName" ||
-          optionName === "preserveContentTypeHeader" ||
           optionName === "responseEnvelopeName";
     }
 
@@ -204,7 +139,7 @@ export function getClientOption<T extends boolean | string>(
  * returns true if the response header should be omitted from the response envelope.
  *
  * currently, this is the case for `Content-Type` response headers whose value is
- * a literal/constant, unless the method opts in via the `preserveContentTypeHeader`
+ * a literal/constant, unless the method opts in via the `emitContentTypeHeader`
  * client option. callers (response envelope construction and example mapping)
  * must keep the two sites in sync; use this helper from both.
  *
@@ -216,8 +151,9 @@ export function isOmittedResponseHeader(
   httpHeader: tcgc.SdkServiceResponseHeader,
   sdkMethod: tcgc.SdkServiceMethod<tcgc.SdkHttpOperation>,
   program: tsp.Program,
+  options: go.Options,
 ): boolean {
-  if (!httpHeader.serializedName.match(/^content-type$/i)) {
+  if (!httpHeader.serializedName.match(/^content-type$/i) || options["emit-content-type-header"]) {
     return false;
   }
   // literal/constant header values are folded into the request/response shape and
@@ -225,7 +161,7 @@ export function isOmittedResponseHeader(
   if (httpHeader.type.kind !== "constant" && httpHeader.type.kind !== "enumvalue") {
     return false;
   }
-  const preserveHeader = getClientOption<boolean>("preserveContentTypeHeader", sdkMethod, program);
+  const preserveHeader = getClientOption<boolean>("emitContentTypeHeader", sdkMethod, program);
   return preserveHeader !== true;
 }
 
@@ -288,20 +224,34 @@ export function isExtensibleEnum(type: tcgc.SdkType): boolean {
 /**
  * returns the effective Go name for a tcgc item that may carry an isExactName marker.
  * when isExactName is true (set by the tsp exact() function on @clientName), the name
- * (with any provided suffix appended verbatim) is returned without built-in naming
- * canonization or first-character casing changes - exact names are honored as-authored.
- * otherwise the name (with any provided suffix appended) is canonicalized via
- * naming.ensureNameCase(), with lowerFirst optionally lowercasing the first character
- * for unexported/parameter identifiers.
+ * (with any provided suffix appended verbatim) is honored as-authored apart from the
+ * first character, whose casing must still obey Go's export rules: unexported/parameter
+ * identifiers (lowerFirst, or access "internal" when lowerFirst is undefined) are lower-cased
+ * while exported ones are upper-cased. otherwise the name (with any provided suffix appended)
+ * is canonicalized via naming.ensureNameCase(), with lowerFirst optionally lowercasing the
+ * first character for unexported/parameter identifiers.
  */
 export function getEffectiveName(
-  src: { name: string; isExactName?: boolean },
+  src: { name: string; isExactName?: boolean; access?: tcgc.AccessFlags },
   lowerFirst?: boolean,
   suffix?: string,
 ): string {
   const name = suffix ? `${src.name}${suffix}` : src.name;
   if (src.isExactName) {
-    return name;
+    // exact names are honored as-authored, but Go's export rules still dictate
+    // the first character's casing.
+    if (lowerFirst ?? src.access === "internal") {
+      return naming.uncapitalize(name);
+    }
+    // NOTE: for exact names, we don't want to use naming.ensureNameCase() because it will
+    // apply additional transformations (e.g. acronym upper-casing) that would violate the
+    // "exact" contract. Go only exports identifiers that begin with an upper-case letter,
+    // so strip any leading non-letter characters (e.g. '_', digits) before upper-casing.
+    const exportable = name.replace(/^[^\p{L}]+/u, "");
+    if (exportable.length === 0) {
+      return name;
+    }
+    return exportable.charAt(0).toUpperCase() + exportable.slice(1);
   }
   return naming.ensureNameCase(name, lowerFirst);
 }

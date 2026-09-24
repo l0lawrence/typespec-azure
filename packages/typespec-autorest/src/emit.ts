@@ -1,7 +1,7 @@
 import { createTCGCContext } from "@azure-tools/typespec-client-generator-core";
 import {
   compilerAssert,
-  EmitContext,
+  type EmitContext,
   emitFile,
   getDirectoryPath,
   getNamespaceFullName,
@@ -10,21 +10,22 @@ import {
   interpolatePath,
   listServices,
   NoTarget,
-  Program,
+  type Program,
   reportDeprecated,
   resolvePath,
-  Service,
+  sanitizePathSegment,
+  type Service,
 } from "@typespec/compiler";
 import {
   unsafe_mutateSubgraphWithNamespace,
-  unsafe_MutatorWithNamespace,
+  type unsafe_MutatorWithNamespace,
 } from "@typespec/compiler/experimental";
 import { resolveInfo } from "@typespec/openapi";
 import { getVersioningMutators } from "@typespec/versioning";
 import { isMap, isSeq, parseDocument, stringify as stringifyYaml } from "yaml";
-import { AutorestEmitterOptions, getTracer, reportDiagnostic } from "./lib.js";
+import { type AutorestEmitterOptions, getTracer, reportDiagnostic } from "./lib.js";
 import {
-  AutorestDocumentEmitterOptions,
+  type AutorestDocumentEmitterOptions,
   createDocumentProxy,
   getOpenAPIForService,
   sortOpenAPIDocument,
@@ -36,7 +37,7 @@ import type {
   ServiceYaml,
   ServiceYamlVersion,
 } from "./types.js";
-import { AutorestEmitterContext } from "./utils.js";
+import type { AutorestEmitterContext } from "./utils.js";
 
 /**
  * Extended options specific to the emitting of the typespec-autorest emitter
@@ -519,10 +520,10 @@ export function resolveOutputFile(
     "azure-resource-provider-folder": azureResourceProviderFolder,
     "service-name":
       multipleServices || azureResourceProviderFolder
-        ? getNamespaceFullName(service.type)
+        ? sanitizePathSegment(getNamespaceFullName(service.type))
         : undefined,
     "version-status": version && (version.includes("preview") ? "preview" : "stable"),
-    version,
+    version: version && sanitizePathSegment(version),
     feature,
   });
 

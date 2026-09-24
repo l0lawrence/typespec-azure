@@ -1,22 +1,22 @@
 import {
-  FinalOperationStep,
+  type FinalOperationStep,
   getParameterizedNextLinkArguments,
-  NextOperationLink,
-  NextOperationReference,
-  OperationLink,
-  OperationReference,
-  PollingOperationStep,
-  TerminationStatus,
+  type NextOperationLink,
+  type NextOperationReference,
+  type OperationLink,
+  type OperationReference,
+  type PollingOperationStep,
+  type TerminationStatus,
 } from "@azure-tools/typespec-azure-core";
 import {
   compilerAssert,
   createDiagnosticCollector,
-  Diagnostic,
+  type Diagnostic,
   getSummary,
   ignoreDiagnostics,
   isList,
-  ModelProperty,
-  Operation,
+  type ModelProperty,
+  type Operation,
 } from "@typespec/compiler";
 import { $ } from "@typespec/compiler/typekit";
 import {
@@ -33,34 +33,34 @@ import {
 } from "./decorators.js";
 import { getSdkHttpOperation } from "./http.js";
 import {
-  SdkArrayType,
-  SdkBuiltInType,
-  SdkClient,
-  SdkClientType,
-  SdkLroPagingServiceMethod,
-  SdkLroServiceFinalResponse,
-  SdkLroServiceFinalStep,
-  SdkLroServiceMetadata,
-  SdkLroServiceMethod,
-  SdkMethod,
-  SdkMethodParameter,
-  SdkMethodResponse,
-  SdkModelPropertyType,
-  SdkModelType,
-  SdkNextOperationLink,
-  SdkNextOperationReference,
-  SdkOperationLink,
-  SdkOperationReference,
-  SdkPagingServiceMethod,
-  SdkPollingOperationStep,
-  SdkPropertyMap,
-  SdkServiceMethod,
-  SdkServiceOperation,
-  SdkSseMetadata,
-  SdkStreamMetadata,
-  SdkTerminationStatus,
-  SdkType,
-  TCGCContext,
+  type SdkArrayType,
+  type SdkBuiltInType,
+  type SdkClient,
+  type SdkClientType,
+  type SdkLroPagingServiceMethod,
+  type SdkLroServiceFinalResponse,
+  type SdkLroServiceFinalStep,
+  type SdkLroServiceMetadata,
+  type SdkLroServiceMethod,
+  type SdkMethod,
+  type SdkMethodParameter,
+  type SdkMethodResponse,
+  type SdkModelPropertyType,
+  type SdkModelType,
+  type SdkNextOperationLink,
+  type SdkNextOperationReference,
+  type SdkOperationLink,
+  type SdkOperationReference,
+  type SdkPagingServiceMethod,
+  type SdkPollingOperationStep,
+  type SdkPropertyMap,
+  type SdkServiceMethod,
+  type SdkServiceOperation,
+  type SdkSseMetadata,
+  type SdkStreamMetadata,
+  type SdkTerminationStatus,
+  type SdkType,
+  type TCGCContext,
   UsageFlags,
 } from "./interfaces.js";
 import {
@@ -75,6 +75,7 @@ import {
   getTypeDecorators,
   isNeverOrVoidType,
   isSubscriptionId,
+  responseOverrideKey,
 } from "./internal-utils.js";
 import { createDiagnostic } from "./lib.js";
 import {
@@ -327,7 +328,10 @@ export function getPropertySegmentsFromModelOrParameters(
   source: SdkModelType | SdkMethodParameter[],
   predicate: (property: SdkMethodParameter | SdkModelPropertyType) => boolean,
 ): (SdkMethodParameter | SdkModelPropertyType)[] | undefined {
-  const queue: { model: SdkModelType; path: (SdkMethodParameter | SdkModelPropertyType)[] }[] = [];
+  const queue: {
+    model: SdkModelType;
+    path: (SdkMethodParameter | SdkModelPropertyType)[];
+  }[] = [];
 
   if (!Array.isArray(source)) {
     if (source.baseModel) {
@@ -609,6 +613,11 @@ function getSdkMethodResponse(
   client: SdkClientType<SdkServiceOperation>,
 ): SdkMethodResponse {
   const responses = sdkOperation.responses;
+  const responseOverride = getOverriddenClientMethod(context, operation);
+  const responseOverrideType =
+    responseOverride && context.program.stateMap(responseOverrideKey).get(responseOverride)
+      ? responseOverride.returnType
+      : undefined;
 
   const allResponseBodies: SdkType[] = [];
   let containsResponseWithoutBody = false;
@@ -622,7 +631,13 @@ function getSdkMethodResponse(
 
   const responseTypes = new Set<string>(allResponseBodies.map((x) => getHashForType(x)));
   let type: SdkType | undefined = undefined;
-  if (getResponseAsBool(context, operation)) {
+  if (responseOverrideType && isNeverOrVoidType(responseOverrideType)) {
+    type = undefined;
+  } else if (responseOverrideType) {
+    type = ignoreDiagnostics(
+      getClientTypeWithDiagnostics(context, responseOverrideType, operation),
+    );
+  } else if (getResponseAsBool(context, operation)) {
     type = getSdkBuiltInType(context, $(context.program).builtin.boolean);
   } else {
     if (responseTypes.size > 1) {
@@ -749,10 +764,14 @@ function getSdkServiceMethod<TServiceOperation extends SdkServiceOperation>(
   operation: Operation,
   client: SdkClientType<TServiceOperation>,
 ): [SdkServiceMethod<TServiceOperation>, readonly Diagnostic[]] {
+  const override = getOverriddenClientMethod(context, operation);
+  const responseReplacement =
+    override !== undefined && context.program.stateMap(responseOverrideKey).get(override) === true;
   const lro = getTcgcLroMetadata(context, operation, client);
   // `@disablePageable` disables paging even for operations with @list
   const pagingDisabled = getDisablePageable(context, operation);
   const paging =
+    !responseReplacement &&
     !pagingDisabled &&
     (isList(context.program, operation) || getMarkAsPageable(context, operation));
   if (lro && paging) {

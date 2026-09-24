@@ -78,11 +78,10 @@ model ArmDeletedResponse {
  * ```
  */
 @doc("Resource deletion accepted.")
-model ArmDeleteAcceptedLroResponse<LroHeaders extends TypeSpec.Reflection.Model = ArmLroLocationHeader &
-  Azure.Core.Foundations.RetryAfterHeader> is ArmAcceptedLroResponse<
-  "Resource deletion accepted.",
-  LroHeaders
->;
+model ArmDeleteAcceptedLroResponse<
+  LroHeaders extends TypeSpec.Reflection.Model = ArmLroLocationHeader &
+    Azure.Core.Foundations.RetryAfterHeader
+> is ArmAcceptedLroResponse<"Resource deletion accepted.", LroHeaders>;
 
 /**
  * The response for synchronous Azure Resource Manager delete ACCEPTED
@@ -246,7 +245,7 @@ model ArmLroLocationHeader<
  * @template StatusMonitor The type of the polling StatusMonitor when following the Azure-AsyncOperation url
  * @template FinalResult The type of the logical result when following the location header
  * @template PollingUrlValue The value type of the link to the status monitor
- * @template FinalUrlValue The value type fo the link to the final result
+ * @template FinalUrlValue The value type of the link to the final result
  *
  * @example
  * ```typespec
@@ -320,7 +319,7 @@ model ArmResourceUpdatedResponse<Resource extends Azure.ResourceManager.Foundati
 
 /**
  * Resource create operation succeeded
- * @template Resource The resource being updated
+ * @template Resource The resource being created
  * @template LroHeaders Optional. The lro headers returned with a Created response
  *
  * @example
@@ -350,7 +349,7 @@ model ArmResourceCreatedResponse<
 
 /**
  * Resource synchronous create operation succeeded
- * @template Resource The resource being updated
+ * @template Resource The resource being created
  *
  * @example
  * ```typespec

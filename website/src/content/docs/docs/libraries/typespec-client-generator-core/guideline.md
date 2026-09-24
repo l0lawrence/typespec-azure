@@ -60,7 +60,7 @@ Use the [TCGC Playground](https://azure.github.io/typespec-azure/playground/?e=%
 
 ### TCGC Flags
 
-TCGC provides flags to control the client type graph style, such as enabling or disabling convenience APIs. See the [documentation](../reference/emitter/#emitter-options) for details.
+TCGC provides flags to control the client type graph style, such as enabling or disabling convenience and protocol APIs for Java and C# emitters. Other emitters should not set `generate-convenience-methods` or `generate-protocol-methods`; TCGC reports an `unnecessary-emitter-option` warning when either option is explicitly set for another language. See the [documentation](../reference/emitter/#emitter-options) for details.
 
 ## TCGC Raw Types and Helpers
 
@@ -81,8 +81,8 @@ Most TCGC types share the following common properties:
 - **`namespace`**: Indicates the type's namespace.
 - **`doc` and `summary`**: Contain documentation-related information.
 - **`apiVersions`**: Indicates which API versions the type exists in.
-- **`decorators`**: Stores all TypeSpec decorator info for advanced use cases.
-- **`crossLanguageDefinitionId`**: A unique ID for a TCGC type that can be used for output mapping across different emitters.
+- **`decorators`**: Stores TypeSpec decorator information for advanced use cases. Model-reference arguments are converted to TCGC SDK types only for `@clientOption`, preserving scoped transformations such as `@alternateType`. Model-reference arguments on other decorators are unsupported: TCGC reports `unsupported-generic-decorator-arg-type` and records the argument as `undefined`.
+- **`crossLanguageDefinitionId`**: A unique ID for a TCGC type that can be used for output mapping across different emitters. When `@alternateType` replaces a union, model, enum, scalar, or model property, the original type uses the replacement type's ID. This is resolved recursively, so a chain of alternate types has one identity.
 - **`name`** and **`isGeneratedName`**: The type's name and whether the name was created by TCGC.
 - **`isExactName`**: Indicates that the name was set via `@clientName` with the `exact()` function and must be used as-is by language emitters, without applying any casing transformations (e.g., no snake_case for Python, no camelCase for JavaScript).
 - **`access`**: Indicates whether the type has public or private accessibility.
@@ -101,7 +101,7 @@ Most TCGC types share the following common properties:
   - `LroFinalEnvelope` (8192): Type is used in the final envelope of an LRO.
   - `External` (16384): Type is only referenced through external alternate types. When a type has the `External` flag and no `Input` or `Output` flags, it means emitters do not need to generate serialization/deserialization code for it — the external package handles that. TCGC blocks propagation of non-`External` usage flags (such as `Input`, `Output`, `Json`) through types marked as external.
 - **`deprecation`**: Indicates whether the type is deprecated and provides the deprecation message.
-- **`clientDefaultValue`**: The type's default value if provided. Set via the `@clientDefaultValue` decorator or auto-set for endpoint and API version parameters.
+- **`clientDefaultValue`**: The type's default value if provided. Set via the `@clientDefaultValue` decorator or auto-set for endpoint and API version parameters. For an API-version parameter, an effective `@Azure.Core.Legacy.overrideApiVersion` value takes precedence over the selected service version. TCGC resolves the override from the operation's declaration scope, including its source-operation chain, rather than from a client to which `@clientLocation` moved the operation. The override changes the parameter default only; it does not change the client's `apiVersions` metadata.
 
 ### Package
 
@@ -118,6 +118,8 @@ Emitters can get package metadata from `SdkPackage.metadata`. The metadata curre
 
 - **`apiVersion`** _(deprecated)_: A single string representing the resolved API version for single-service packages. For multi-service packages this is `undefined`. Use `apiVersions` instead.
 - **`apiVersions`**: A `Map<string, string>` where each key is a service namespace's full qualified name and each value is the resolved API version for that service. For single-service packages, the map has one entry. For multi-service packages, each service has its own entry. If the `api-version` config is set to `"all"` (single-service only), the value is the string `"all"`.
+
+For a multi-service package, the `api-version` emitter option accepts a nested map. Each namespace segment must be represented as a nested object in `tspconfig.yaml`; omitted services resolve to their latest version. TCGC uses the resolved version both for the generated API surface and when loading versioned example files.
 
 ### License Information
 
@@ -207,7 +209,7 @@ For types in TypeSpec, TCGC provides several client types to represent them in a
 
 **Built-in Types:**
 
-- [`SdkBuiltInType`](../reference/js-api/interfaces/sdkbuiltintype/) represents a [built-in TypeSpec type](https://typespec.io/docs/language-basics/built-in-types/) or a [`scalar`](https://typespec.io/docs/language-basics/scalars/) type that derives from a built-in TypeSpec type, excluding `utcDateTime`, `offsetDateTime` and `duration`. The `encode` property indicates how to encode when sending to the service. It is set when the `@encode` decorator exists, or when the context determines a specific encoding — for example, `bytes` in a `multipart/form-data` part get `encode: "bytes"` (raw binary) rather than the default `"base64"`.
+- [`SdkBuiltInType`](../reference/js-api/interfaces/sdkbuiltintype/) represents a [built-in TypeSpec type](https://typespec.io/docs/language-basics/built-in-types/) or a [`scalar`](https://typespec.io/docs/language-basics/scalars/) type that derives from a built-in TypeSpec type, excluding `utcDateTime`, `offsetDateTime` and `duration`. The `encode` property indicates how to encode when sending to the service. It is set when the `@encode` decorator exists, or when the context determines a specific encoding — for example, `bytes` in a `multipart/form-data` part get `encode: "bytes"` (raw binary) rather than the default `"base64"`. When `@encode` specifies an `encodedAs` target type (for example encoding an `int32` as a `string`, or a `string` as an `int32`), the target wire type is exposed on the `wireType` property as its own `SdkBuiltInType`. Emitters should serialize the value using `wireType` while keeping the client-facing type unchanged.
 
 **Date and Time Types:**
 
@@ -315,6 +317,7 @@ Parameters used in client (either API version parameter or client parameter defi
 The method's return type is determined by the underlying operation's normal responses:
 
 - If `@responseAsBool` is on the method, then the response is a `boolean` (never optional). In this case, the underlying HTTP response objects have `type: undefined` — the boolean return type is a client-side concept handled at the method response level, not at the HTTP response level.
+- If `@override` uses `replaceResponseWithVoid` or `replaceResponseWithBytes`, the method response is respectively empty or `bytes`, while the underlying HTTP responses and exceptions keep their original wire types and metadata. Either replacement disables pageable-method classification and reports `override-response-replacement`. For any other override operation, TCGC ignores its declared return type, preserves the response calculated from the original operation, and does not perform response compatibility validation.
 - If the responses contain multiple return types, the return type is a union of all the types.
 - If the responses contain empty return type, the return type is wrapped with a nullable type.
 
@@ -331,6 +334,8 @@ TCGC infers the body parameter type from TypeSpec HTTP lib type [`HttpOperationB
 TCGC creates the `Content-Type` header parameter for any operation with body parameter if it doesn't exist, and creates the `Accept` header parameter for any operation with response that contains body. TCGC also creates corresponding method parameters for the operation's upper layer method for each case.
 
 For request bodies with multiple content types, the `Content-Type` parameter is modeled as an enum with one value per content type. For responses with multiple content types, the `Accept` header parameter is modeled as a single constant whose value is a comma-joined string of all response content types. Structured content types (JSON, XML, `text/plain`) are sorted before unstructured ones. For example, if a response can return `image/png` or `application/json`, the `Accept` constant value is `"application/json, image/png"`.
+
+For a `File` request body without an explicit content type, the HTTP library reports the unconstrained marker `*/*`. TCGC exposes the generated method and HTTP `Content-Type` parameters as optional strings with `clientDefaultValue: "application/octet-stream"` rather than generating a required `"*/*"` constant. This special case applies only to uploads; a `File` response without an explicit content type still has a constant `Accept: "*/*"` parameter.
 
 TCGC uses several ways to find an HTTP operation's parameter's corresponding method parameter or model property:
 

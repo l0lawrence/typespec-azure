@@ -1,13 +1,15 @@
-import { Model, Operation } from "@typespec/compiler";
+import type { Model, Operation } from "@typespec/compiler";
 import { expectDiagnosticEmpty, expectDiagnostics, t } from "@typespec/compiler/testing";
+import { $ } from "@typespec/compiler/typekit";
 import { getHttpOperation } from "@typespec/http";
 import { ok, strictEqual } from "assert";
 import { describe, expect, it } from "vitest";
-import { ArmLifecycleOperationKind } from "../src/operations.js";
+import type { ArmLifecycleOperationKind } from "../src/operations.js";
 import {
-  ArmResourceDetails,
+  type ArmResourceDetails,
   getArmResources,
   getFeature,
+  getFeatureFileSet,
   getResourceFeature,
   getResourceFeatureSet,
 } from "../src/resource.js";
@@ -396,6 +398,15 @@ describe("ARM resource model:", () => {
     });
   });
   describe("features support", () => {
+    it("returns undefined when feature files are not configured", async () => {
+      const { program, MSTest } = await Tester.compile(t.code`
+        @armProviderNamespace("Microsoft.Test")
+        namespace ${t.namespace("MSTest")};
+      `);
+
+      strictEqual(getFeatureFileSet(program, MSTest), undefined);
+    });
+
     it("sets standard features and feature options", async () => {
       const [result, diagnostics] = await Tester.compileAndDiagnose(t.code`
 
@@ -427,6 +438,10 @@ enum Features {
       }
       `);
       expectDiagnosticEmpty(diagnostics);
+      strictEqual(
+        getFeatureFileSet(result.program, result.MSTest),
+        result.MSTest.enums.get("Features"),
+      );
       const features = getResourceFeatureSet(result.program, result.MSTest);
       expect(features).toBeDefined();
       ok(features);
@@ -1416,5 +1431,29 @@ describe("multiple services", () => {
     expect(ResA.armProviderNamespace).toEqual("Provider.A");
     expect(ResB.name).toEqual("ResB");
     expect(ResB.armProviderNamespace).toEqual("Provider.B");
+  });
+});
+
+describe("decorator re-application", () => {
+  // Emitters (and versioning) create copies of the resource types through the mutator
+  // framework, which re-runs the decorators on the copy. Those decorators must be
+  // idempotent, otherwise sealing the visibility of `name` a second time reports
+  // `visibility-sealed`.
+  it("does not report diagnostics when the resource decorators are applied again", async () => {
+    const { program, FooResource } = await Tester.compile(t.code`
+      @armProviderNamespace
+      namespace Microsoft.Test;
+
+      model FooResourceProperties {}
+
+      model ${t.model("FooResource")} is TrackedResource<FooResourceProperties> {
+        ...ResourceNameParameter<FooResource>;
+      }
+    `);
+
+    const tk = $(program);
+    tk.type.finishType(tk.type.clone(FooResource));
+
+    expectDiagnosticEmpty(program.diagnostics);
   });
 });

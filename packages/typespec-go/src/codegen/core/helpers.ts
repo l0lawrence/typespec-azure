@@ -72,6 +72,43 @@ export function sortAscending(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+/** returns the header name using Go's canonical MIME header key casing */
+export function canonicalizeHeaderName(name: string): string {
+  if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name)) {
+    return name;
+  }
+
+  let canonicalName = "";
+  let upper = true;
+  for (const char of name) {
+    canonicalName += upper ? char.toUpperCase() : char.toLowerCase();
+    upper = char === "-";
+  }
+  return canonicalName;
+}
+
+/**
+ * emits code to verify that a path parameter is not empty
+ *
+ * @param param the path parameter to check
+ * @param paramIn where the path parameter check is being emitted
+ * @param imports the import manager currently in scope
+ * @param indent the indentation helper currently in scope
+ * @returns the code to check the path parameter for emptiness
+ */
+export function emitEmptyPathParamCheck(
+  param: go.PathParameter,
+  paramIn: "ctor" | "method",
+  imports: ImportManager,
+  indent: Indentation,
+): string {
+  imports.add("errors");
+  let text = `${indent.get()}if ${paramIn === "ctor" ? param.name : getParamName(param)} == "" {\n`;
+  text += `${indent.push().get()}return nil, errors.New("parameter ${param.name} cannot be empty")\n`;
+  text += `${indent.pop().get()}}\n`;
+  return text;
+}
+
 /**
  * returns the parameter's type definition with a possible '*' prefix
  *
@@ -84,29 +121,20 @@ export function formatParameterTypeName(
   param: go.ClientOptionsType | go.ClientParameter | go.ParameterGroup,
 ): string {
   let typeName: string;
-  let required: boolean;
   switch (param.kind) {
     case "armClientOptions":
-      typeName = go.getTypeDeclaration(param, scope);
-      required = false;
-      break;
     case "clientOptions":
-      typeName = go.getTypeDeclaration(param, scope);
-      required = false;
-      break;
     case "paramGroup":
       typeName = go.getTypeDeclaration(param, scope);
-      required = param.required;
       break;
     default:
       typeName = go.getTypeDeclaration(param.type, scope);
-      required = param.byValue;
   }
-  return required ? typeName : `*${typeName}`;
+  return typeName;
 }
 
 // sorts parameters by their required state, ordering required before optional
-export function sortParametersByRequired(
+function sortParametersByRequired(
   a: go.ClientParameter | go.ParameterGroup,
   b: go.ClientParameter | go.ParameterGroup,
 ): number {
@@ -167,6 +195,7 @@ export function sortClientParameters(
 // returns the parameters for the internal request creator method.
 // e.g. "i int, s string"
 export function getCreateRequestParametersSig(method: go.MethodType | go.NextPageMethod): string {
+  // NOTE: keep in sync with getCreateRequestParameters
   const methodParams = getMethodParameters(method);
   const params = new Array<string>();
   params.push("ctx context.Context");
@@ -183,6 +212,13 @@ export function getCreateRequestParametersSig(method: go.MethodType | go.NextPag
     }
     params.push(`${paramName} ${formatParameterTypeName(method.receiver.type.pkg, methodParam)}`);
   }
+  if (
+    (method.kind === "lroPageableMethod" || method.kind === "pageableMethod") &&
+    method.strategy?.kind === "nextLink"
+  ) {
+    // inject the nextLink param right before the options param
+    params.splice(-1, 0, "nextLink string");
+  }
   return params.join(", ");
 }
 
@@ -194,7 +230,11 @@ export function getCreateRequestParametersSig(method: go.MethodType | go.NextPag
  * @param optionsParam optional custom param name for the method options param
  * @returns the text for the parameters
  */
-export function getCreateRequestParameters(method: go.MethodType, optionsParam?: string): string {
+export function getCreateRequestParameters(
+  method: go.MethodType,
+  nextLinkParam?: string,
+  optionsParam?: string,
+): string {
   // NOTE: keep in sync with getCreateRequestParametersSig
   const methodParams = getMethodParameters(method);
   const params = new Array<string>();
@@ -207,6 +247,10 @@ export function getCreateRequestParameters(method: go.MethodType, optionsParam?:
     } else {
       params.push(methodParam.name);
     }
+  }
+  if (nextLinkParam) {
+    // inject the nextLink param right before the options param
+    params.splice(-1, 0, nextLinkParam);
   }
   return params.join(", ");
 }
@@ -280,12 +324,7 @@ export function getParamName(param: go.MethodParameter): string {
   if (param.location === "client") {
     paramName = `client.${paramName}`;
   }
-  // client parameters with default values aren't emitted as pointer-to-type
-  if (
-    !go.isRequiredParameter(param.style) &&
-    !(param.location === "client" && go.isClientSideDefault(param.style)) &&
-    !param.byValue
-  ) {
+  if (param.type.kind === "ptr") {
     paramName = `*${paramName}`;
   }
   return paramName;
@@ -331,24 +370,27 @@ export function formatParamValue(
         return content;
       };
 
-      switch (param.type.elementType.kind) {
+      const unwrappedElement = go.unwrapPtr(param.type.elementType);
+      switch (unwrappedElement.kind) {
         case "encodedBytes":
           imports.add("encoding/base64");
           imports.add("strings");
           return emitConvertOver(
             param.name,
-            `base64.${formatBytesEncoding(param.type.elementType.encoding)}Encoding.EncodeToString(${param.name}[i])`,
+            `base64.${formatBytesEncoding(unwrappedElement.encoding)}Encoding.EncodeToString(${param.name}[i])`,
           );
         case "string":
           imports.add("strings");
           return `strings.Join(${paramName}, "${separator}")`;
-        case "time":
+        case "time": {
           imports.add("strings");
           imports.add("github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime/datetime");
+          const elemVal = unwrappedElement.utc ? `${param.name}[i].UTC()` : `${param.name}[i]`;
           return emitConvertOver(
             param.name,
-            `datetime.${param.type.elementType.format}(${param.name}[i]).String()`,
+            `datetime.${unwrappedElement.format}(${elemVal}).String()`,
           );
+        }
         default:
           imports.add("fmt");
           imports.add("strings");
@@ -357,7 +399,19 @@ export function formatParamValue(
     }
   }
 
-  return formatValue(paramName, param.type, imports);
+  // when we called getParamName it includes any dereference for a Ptr
+  // parameter, so we unwrap it here else we end up with a double deref
+  return formatValue(paramName, go.unwrapPtr(param.type), imports);
+}
+
+/**
+ * returns the receiver definition for a client
+ *
+ * @param receiver the receiver for which to emit the definition
+ * @returns the receiver definition
+ */
+export function getClientReceiverDefinition(receiver: go.Receiver<go.Client>): string {
+  return `(${receiver.name} ${receiver.byValue ? "" : "*"}${receiver.type.name})`;
 }
 
 export function getDelimiterForCollectionFormat(cf: go.CollectionFormat): string {
@@ -375,23 +429,111 @@ export function getDelimiterForCollectionFormat(cf: go.CollectionFormat): string
   }
 }
 
-export function formatValue(
-  paramName: string,
+export function getMediaFormat(
   type: go.WireType,
-  imports: ImportManager,
-  deref?: boolean,
+  mediaType: "JSON" | "XML",
+  param: string,
 ): string {
+  let marshaller: "JSON" | "XML" | "ByteArray" = mediaType;
+  let format = "";
+  if (type.kind === "encodedBytes") {
+    marshaller = "ByteArray";
+    format = `, runtime.Base64${type.encoding}Format`;
+  }
+  return `${marshaller}(${param}${format})`;
+}
+
+/**
+ * Emits the code for parsing scalar types from a string.
+ * The parsing error result is placed into a local var named "err".
+ *
+ * @param scalar the type of scalar to parse
+ * @param src the source var that contains the scalar in string format
+ * @param dst the destination var that contains the result
+ * @param imports the import manager currently in scope
+ * @param indent the indentation helper currently in scope
+ * @returns the scalar parsing code
+ */
+export function emitScalarParsing(
+  scalar: go.Scalar | go.Constant,
+  src: string,
+  dst: string,
+  imports: ImportManager,
+  indent: Indentation,
+): string {
+  imports.add("strconv");
+  switch (scalar.type) {
+    case "bool":
+      return `${indent.get()}${dst}, err := strconv.ParseBool(${src})\n`;
+    case "float32":
+      return (
+        `${indent.get()}${dst}32, err := strconv.ParseFloat(${src}, 32)\n` +
+        `${indent.get()}${dst} := float32(${dst}32)\n`
+      );
+    case "float64":
+      return `${indent.get()}${dst}, err := strconv.ParseFloat(${src}, 64)\n`;
+    case "int32":
+      return (
+        `${indent.get()}${dst}32, err := strconv.ParseInt(${src}, 10, 32)\n` +
+        `${indent.get()}${dst} := int32(${dst}32)\n`
+      );
+    case "int64":
+      return `${indent.get()}${dst}, err := strconv.ParseInt(${src}, 10, 64)\n`;
+    default:
+      throw new CodegenError("InternalError", `unhandled scalar type ${scalar.type}`);
+  }
+}
+
+/**
+ * emits the code for parsing a time.Time from the specified variable.
+ * note that the emitted code does not include the error check after parsing.
+ *
+ * @param srcVar the name of the variable that contains the value to parse
+ * @param time the modeled time associated with srcVar
+ * @param dstVar the name of the variable to contain the parsed value
+ * @param imports the import manager currently in scope
+ * @param indent the indentation helper currently in scope
+ * @returns the time parsing code
+ */
+export function emitTimeParsing(
+  srcVar: string,
+  time: go.Time,
+  dstVar: string,
+  imports: ImportManager,
+  indent: Indentation,
+): string {
+  imports.add("time");
+  let text: string;
+  switch (time.format) {
+    case "RFC1123":
+    case "RFC3339":
+    case "RFC7231":
+      text = `${indent.get()}${dstVar}, err := time.Parse(${time.format === "RFC3339" ? RFC3339Format : RFC1123Format}, ${srcVar})\n`;
+      break;
+    case "PlainDate":
+      text = `${indent.get()}${dstVar}, err := time.Parse(${plainDateFormat}, ${srcVar})\n`;
+      break;
+    case "PlainTime":
+      text = `${indent.get()}${dstVar}, err := time.Parse(${plainTimeFormat}, ${srcVar})\n`;
+      break;
+    case "Unix":
+      imports.add("strconv");
+      text = `${indent.get()}${dstVar}, err := strconv.ParseInt(${srcVar}, 10, 64)\n`;
+      break;
+  }
+  return text;
+}
+
+export function formatValue(paramName: string, type: go.WireType, imports: ImportManager): string {
   // callers don't have enough context to know if paramName needs to be
   // dereferenced so we track that here when specified. note that not all
   // cases will require paramName to be dereferenced.
-  let star = "";
-  if (deref === true) {
-    star = "*";
-  }
+  const star = deref(type);
 
-  switch (type.kind) {
+  const unwrappedType = go.unwrapPtr(type);
+  switch (unwrappedType.kind) {
     case "constant":
-      if (type.type === "string") {
+      if (unwrappedType.type === "string") {
         return `string(${star}${paramName})`;
       }
       imports.add("fmt");
@@ -399,19 +541,19 @@ export function formatValue(
     case "encodedBytes":
       // a base-64 encoded value in string format
       imports.add("encoding/base64");
-      return `base64.${formatBytesEncoding(type.encoding)}Encoding.EncodeToString(${paramName})`;
+      return `base64.${formatBytesEncoding(unwrappedType.encoding)}Encoding.EncodeToString(${paramName})`;
     case "etag":
       return `string(${star}${paramName})`;
     case "literal":
       // cannot use formatLiteralValue() since all values are treated as strings
-      switch (type.type.kind) {
+      switch (unwrappedType.type.kind) {
         case "constantDef":
-          return type.type.name;
+          return unwrappedType.type.name;
         default:
-          return `"${type.literal}"`;
+          return `"${unwrappedType.literal}"`;
       }
     case "scalar":
-      switch (type.type) {
+      switch (unwrappedType.type) {
         case "bool":
           imports.add("strconv");
           return `strconv.FormatBool(${star}${paramName})`;
@@ -428,11 +570,13 @@ export function formatValue(
           imports.add("strconv");
           return `strconv.FormatInt(${star}${paramName}, 10)`;
         default:
-          throw new CodegenError("InternalError", `unhandled scalar type ${type.type}`);
+          throw new CodegenError("InternalError", `unhandled scalar type ${unwrappedType.type}`);
       }
-    case "time":
+    case "time": {
       imports.add("github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime/datetime");
-      return `datetime.${type.format}(${star}${paramName}).String()`;
+      const timeVal = unwrappedType.utc ? `(${star}${paramName}).UTC()` : `${star}${paramName}`;
+      return `datetime.${unwrappedType.format}(${timeVal}).String()`;
+    }
     default:
       return `${star}${paramName}`;
   }
@@ -481,19 +625,6 @@ export function formatLiteralValue(value: go.Literal, withCast: boolean): string
       return `"${value.literal}"`;
     case "time":
       return `"${value.literal}"`;
-  }
-}
-
-// returns true if at least one of the responses has a schema
-export function hasSchemaResponse(method: go.MethodType): boolean {
-  switch (method.returns.result?.kind) {
-    case "anyResult":
-    case "modelResult":
-    case "monomorphicResult":
-    case "polymorphicResult":
-      return true;
-    default:
-      return false;
   }
 }
 
@@ -683,6 +814,87 @@ export function formatCommentAsBulletItem(prefix: string, docs: go.Docs): string
   return chunks.join("\n");
 }
 
+// renders a single list item per the Go doc convention, word-wrapping the text
+// and aligning continuation lines beneath it:
+//
+//	//   - bullet item text that is wrapped
+//	//     onto aligned continuation lines
+//	//  1. numbered item text
+function formatDocListItem(item: go.DocListItem, prefix: string): string {
+  const firstLead = item.kind === "bullet" ? `${prefix}   - ` : `${prefix}  ${item.marker} `;
+  const contLead = prefix + " ".repeat(firstLead.length - prefix.length);
+  // comment() emits `${prefix} word...` lines; swap that lead for the list lead
+  // so wrapping and its width stay consistent with the rest of the comments.
+  const wrapped = comment(item.text, prefix, undefined, commentLength).split("\n");
+  return wrapped
+    .map((chunk, i) => `${i === 0 ? firstLead : contLead}${chunk.slice(prefix.length + 1)}`)
+    .join("\n");
+}
+
+// reports whether text has a non-blank line that isn't a list item, i.e. a line
+// go/doc/comment will see with zero indentation.
+function hasProseLine(text: string): boolean {
+  return text
+    .split("\n")
+    .some((line) => line.trim() !== "" && go.matchDocListItem(line) === undefined);
+}
+
+// renders doc text as Go doc comment lines, formatting bullet/numbered lists per
+// the Go doc convention. Blank source lines aren't preserved (matching comment());
+// blank comment lines are added only where Go needs them to delimit a list. Nested
+// lists aren't supported: Go has no concept of them and gofmt flattens sub-items.
+//
+// go/doc/comment strips the common leading whitespace of every non-blank line
+// before looking for lists, so a comment of nothing but list items loses its
+// indentation and degrades into a paragraph that gofmt then rewrites. One prose
+// line anywhere keeps the list intact, wherever the list sits. Lists are therefore
+// only rendered when prose exists -- in text, or already emitted by the caller
+// (hasPrecedingProse, e.g. a summary or a "Name -" lead-in). Otherwise the text
+// falls back to plain wrapped prose, which is what gofmt produces.
+function renderDocBody(text: string, prefix = "//", hasPrecedingProse = false): string {
+  const out = new Array<string>();
+  // whether a list is being accumulated; a blank source line ends it, yielding a
+  // "loose" list. afterList outlives blank lines, since prose following a list
+  // always needs a blank comment line to end that list.
+  let inList = false;
+  let afterList = false;
+  const renderLists = hasPrecedingProse || hasProseLine(text);
+  const lastIsBlank = () => out.length === 0 || out[out.length - 1] === prefix;
+
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    if (line.trim() === "") {
+      inList = false;
+      continue;
+    }
+
+    const item = renderLists ? go.matchDocListItem(line) : undefined;
+    if (item) {
+      // a list must be separated from preceding prose to be recognized.
+      if (!inList && !lastIsBlank()) {
+        out.push(prefix);
+      }
+      out.push(formatDocListItem(item, prefix));
+      inList = true;
+      afterList = true;
+      continue;
+    }
+
+    if (afterList && !lastIsBlank()) {
+      out.push(prefix);
+    }
+    inList = false;
+    afterList = false;
+    out.push(comment(line.trim(), prefix, undefined, commentLength));
+  }
+
+  // drop any trailing blank comment lines.
+  while (out.length > 0 && out[out.length - 1] === prefix) {
+    out.pop();
+  }
+  return out.join("\n");
+}
+
 // conditionally returns a doc comment on an entity that requires a prefix.
 // e.g.:
 // {Prefix} - {docs.summary}
@@ -703,10 +915,10 @@ export function formatDocCommentWithPrefix(prefix: string, docs: go.Docs): strin
     if (docs.summary) {
       docComment += "//\n";
     } else {
-      // only apply the prefix to the description if there was no summary
-      description = `${prefix} - ${description}`;
+      // only apply the prefix to the description if there was no summary.
+      description = go.prefixDocWithName(prefix, description);
     }
-    docComment += `${comment(`${description}`, "//", undefined, commentLength)}\n`;
+    docComment += `${renderDocBody(description, "//", true)}\n`;
   }
 
   return docComment;
@@ -730,7 +942,7 @@ export function formatDocComment(docs: go.Docs): string {
     if (docs.summary) {
       docComment += "//\n";
     }
-    docComment += `${comment(docs.description, "//", undefined, commentLength)}\n`;
+    docComment += `${renderDocBody(docs.description, "//", !!docs.summary)}\n`;
   }
 
   return docComment;
@@ -759,6 +971,8 @@ export function recursiveUnwrapMapSlice(item: go.WireType): go.WireType {
   switch (item.kind) {
     case "map":
       return recursiveUnwrapMapSlice(item.valueType);
+    case "ptr":
+      return recursiveUnwrapMapSlice(item.ptrType);
     case "slice":
       return recursiveUnwrapMapSlice(item.elementType);
     default:
@@ -766,14 +980,9 @@ export function recursiveUnwrapMapSlice(item: go.WireType): go.WireType {
   }
 }
 
-/**
- * returns a * character when byValue is false
- *
- * @param byValue indicates if the type is passed by value
- * @returns a * or the empty string
- */
-export function star(byValue: boolean): string {
-  return byValue ? "" : "*";
+/** returns a * character when needing to dereference */
+export function deref(type: go.WireType): "*" | "" {
+  return type.kind === "ptr" ? "*" : "";
 }
 
 /**
@@ -782,16 +991,19 @@ export function star(byValue: boolean): string {
  * @param param the param for which to create a zero value
  * @returns the zero-value expression
  */
-export function zeroValue(param: go.MethodParameter): string {
+export function zeroValue(param: go.ClientParameter | go.MethodParameter): string {
   // even though API version params typically have a client-side default which makes
   // them optional, the azcore.ClientOptions.APIVersion field isn't pointer-to-type.
-  if (go.isRequiredParameter(param.style) || go.isAPIVersionParameter(param)) {
+  if (go.isRequiredParameter(param.style)) {
     switch (param.type.kind) {
       case "string":
         return `""`;
       default:
         throw new CodegenError("InternalError", `unhandled zero-value kind ${param.type.kind}`);
     }
+  } else if (go.isAPIVersionParameter(param)) {
+    // api version is always a string
+    return `""`;
   }
 
   // optional params are pointer-to-type
@@ -1122,17 +1334,31 @@ export interface elseBlock {
 }
 
 /**
- * constructs an if block (can expand to include else if as necessary)
+ * constructs an if block
  *
  * @param indent the current indentation helper in scope
  * @param ifBlock the if block definition
+ * @param elseIfBlocks optional zero or more "else if" block definitions
  * @param elseBlock optional else block definition
  * @returns the text for the if block
  */
-export function buildIfBlock(indent: Indentation, ifBlock: ifBlock, elseBlock?: elseBlock): string {
+export function buildIfBlock(
+  indent: Indentation,
+  ifBlock: ifBlock,
+  elseIfBlocks?: Array<ifBlock>,
+  elseBlock?: elseBlock,
+): string {
   let body = `if ${ifBlock.condition} {\n`;
   body += ifBlock.body(indent.push());
   body += `${indent.pop().get()}}`;
+
+  if (elseIfBlocks) {
+    for (const elseIfBlock of elseIfBlocks) {
+      body += ` else if ${elseIfBlock.condition} {\n`;
+      body += elseIfBlock.body(indent.push());
+      body += `${indent.pop().get()}}`;
+    }
+  }
 
   if (elseBlock) {
     body += " else {\n";
@@ -1156,6 +1382,70 @@ export function buildErrCheck(indent: Indentation, errVar: string, returns?: str
   body += `${indent.push().get()}return ${returns ? `${returns}, ` : ""}${errVar}\n`;
   body += `${indent.pop().get()}}`;
   return body;
+}
+
+/**
+ * constructs a for block
+ *
+ * @param indent the current indentation helper in scope
+ * @param expression the for expression
+ * @param body the body of the for block
+ * @returns the text for the for block
+ */
+export function buildForBlock(
+  indent: Indentation,
+  expression: string,
+  body: (indent: Indentation) => string,
+): string {
+  let content = `for ${expression} {\n`;
+  content += body(indent.push());
+  content += `${indent.pop().get()}}\n`;
+  return content;
+}
+
+/** a case statement in a switch/case block */
+export interface caseStatement {
+  /** the case's expression */
+  expression: string;
+
+  /** the case's execution clause */
+  clause: (indent: Indentation) => string;
+}
+
+/** the default case in a switch/case block */
+export interface defaultCase {
+  /** the case's execution clause */
+  clause: (indent: Indentation) => string;
+}
+
+/**
+ * constructs a switch/case statement
+ *
+ * @param indent the current indentation helper in scope
+ * @param statement the statement to switch on
+ * @param cases one or more case statements
+ * @param def optional default case statement
+ * @returns the text for the switch/case statement
+ */
+export function buildSwitchCase(
+  indent: Indentation,
+  statement: string,
+  cases: Array<caseStatement>,
+  def?: defaultCase,
+): string {
+  let content = `switch ${statement} {\n`;
+  for (const cse of cases) {
+    content += `case ${cse.expression}:\n`;
+    content += cse.clause(indent.push());
+    indent.pop();
+  }
+  if (def) {
+    content += "default:\n";
+    content += def.clause(indent.push());
+    indent.pop();
+  }
+  content += "}\n";
+  return content;
 }
 
 /**
@@ -1316,7 +1606,7 @@ export function camelCase(identifier: string | Array<string>): string {
   return `${naming.uncapitalize(identifier[0])}${pascalCase(identifier.slice(1))}`;
 }
 
-export function pascalCase(identifier: string | Array<string>): string {
+function pascalCase(identifier: string | Array<string>): string {
   return identifier === undefined
     ? ""
     : typeof identifier === "string"

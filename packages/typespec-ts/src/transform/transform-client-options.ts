@@ -1,12 +1,12 @@
 import { getHttpOperationWithCache } from "@azure-tools/typespec-client-generator-core";
-import { getDoc, NoTarget, Program } from "@typespec/compiler";
+import { getDoc, NoTarget, type Program } from "@typespec/compiler";
 import { getAuthentication } from "@typespec/http";
-import { ClientOptions, PackageDetails, ServiceInfo } from "../interfaces.js";
-import { EmitterOptions, reportDiagnostic } from "../lib.js";
+import type { ClientOptions, PackageDetails, ServiceInfo } from "../interfaces.js";
+import { type EmitterOptions, reportDiagnostic } from "../lib.js";
 import { getClientParameters } from "../modular/helpers/client-helpers.js";
 import { getClients, listOperationsUnderClient } from "../utils/client-utils.js";
 import { getSupportedHttpAuth } from "../utils/credential-utils.js";
-import { SdkContext } from "../utils/interfaces.js";
+import type { SdkContext } from "../utils/interfaces.js";
 import { getDefaultService } from "../utils/model-utils.js";
 import { NameType, normalizeName, pascalCase } from "../utils/name-utils.js";
 import { detectModelConflicts } from "../utils/namespace-utils.js";
@@ -57,6 +57,8 @@ function extractClientOptions(
   const ignoreNullableOnOptional = getIgnoreNullableOnOptional(emitterOptions);
   const wrapNonModelReturn = getWrapNonModelReturn(emitterOptions);
   const isMultiService = (dpgContext.allServiceNamespaces?.length ?? 0) > 1;
+  const experimentalSplitModelsByVisibility =
+    emitterOptions["experimental-split-models-by-visibility"] === true;
 
   return {
     ...credentialInfo,
@@ -85,6 +87,7 @@ function extractClientOptions(
     enableStorageCompat,
     treatUnknownAsRecord,
     generateReactNativeTarget,
+    experimentalSplitModelsByVisibility,
   };
 }
 

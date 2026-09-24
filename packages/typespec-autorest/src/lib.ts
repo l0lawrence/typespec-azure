@@ -1,4 +1,4 @@
-import { createTypeSpecLibrary, JSONSchemaType, paramMessage } from "@typespec/compiler";
+import { createTypeSpecLibrary, type JSONSchemaType, paramMessage } from "@typespec/compiler";
 
 export interface AutorestEmitterOptions {
   /**
@@ -462,6 +462,12 @@ export const $lib = createTypeSpecLibrary({
       messages: {
         default:
           "Cannot emit service.yaml because the project defines multiple services. Only the first service will be included.",
+      },
+    },
+    "inconsistent-client-api-version-override": {
+      severity: "warning",
+      messages: {
+        default: paramMessage`Operations emitted to the same OpenAPI document must specify one consistent \`@overrideApiVersion\` value. Found values: ${"values"}. The normal document version ${"fallback"} will be retained.`,
       },
     },
   },

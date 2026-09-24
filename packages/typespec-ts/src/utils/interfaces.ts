@@ -1,6 +1,6 @@
-import { SdkContext as TCGCSdkContext } from "@azure-tools/typespec-client-generator-core";
-import { ModelProperty, Namespace } from "@typespec/compiler";
-import { ClientOptions, SchemaContext } from "../interfaces.js";
+import type { SdkContext as TCGCSdkContext } from "@azure-tools/typespec-client-generator-core";
+import type { ModelProperty, Namespace } from "@typespec/compiler";
+import { type ClientOptions, SchemaContext } from "../interfaces.js";
 import { KnownMediaType } from "./media-types.js";
 
 export interface SdkContext extends TCGCSdkContext {
@@ -8,6 +8,7 @@ export interface SdkContext extends TCGCSdkContext {
   generationPathDetail?: GenerationDirDetail;
   hasApiVersionInClient?: boolean;
   allServiceNamespaces?: Namespace[];
+  commonServiceNamespace?: string[];
 }
 
 export interface GenerationDirDetail {

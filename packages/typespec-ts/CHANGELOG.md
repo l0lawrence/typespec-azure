@@ -1,5 +1,47 @@
 # Change Log - @azure-tools/typespec-ts
 
+## 0.57.0
+
+### Features
+
+- [#5326](https://github.com/Azure/typespec-azure/pull/5326) Add a default `customize` script (`echo skipped`) to generated Azure SDK package metadata, and preserve an existing `customize` script when regenerating a package.
+- [#5331](https://github.com/Azure/typespec-azure/pull/5331) Honor TCGC `exact()` names without applying TypeScript casing transformations.
+- [#5081](https://github.com/Azure/typespec-azure/pull/5081) Add an experimental option to generate visibility-specific request models that exclude lifecycle-invisible properties while preserving HTTP metadata properties in the client model.
+
+### Bug Fixes
+
+- [#5280](https://github.com/Azure/typespec-azure/pull/5280) Fix double encoding of URI template parameter names for array and record query parameter values (e.g. `$Select` becoming `%2524Select` instead of `%24Select`)
+- [#5328](https://github.com/Azure/typespec-azure/pull/5328) Fix generated operation groups and model namespace paths when a package contains multiple services.
+- [#5325](https://github.com/Azure/typespec-azure/pull/5325) Preserve the original parsed response body when flattening response headers for storage compatibility.
+
+
+## 0.56.0
+
+### Features
+
+- [#4891](https://github.com/Azure/typespec-azure/pull/4891) Add built-in support for Azure service groups as extension resource targets and ARM resource identifier scopes.
+- [#5154](https://github.com/Azure/typespec-azure/pull/5154) Rename reserved-word operations (e.g. `delete`) that belong to an operation group by suffixing the singularized group name instead of emitting a `@fixme`. For example, `Conversations.delete` is now generated as `deleteConversation` rather than `$delete` with a fixme doc comment. Operations without an operation group continue to fall back to the previous guarded name and `@fixme` guidance.
+  
+  An explicit `@clientName` override opts out of this renaming: when a reserved-word operation carries a `@clientName`, the emitter keeps the requested public method name (e.g. `delete`) and does not disambiguate it with the operation group or emit a `@fixme`. This provides a backwards-compatibility escape hatch for already-shipped libraries. The generated API-layer function stays guarded (`$delete`) because a reserved word is not a valid JavaScript function binding, while the public surface preserves the original name.
+  
+  ```tsp
+  @route("/conversations")
+  interface Conversations {
+    // Keep `delete` as the generated method name instead of `deleteConversation`.
+    @delete
+    @clientName("delete", "javascript")
+    delete(@path conversationName: string): void;
+  }
+  ```
+
+### Bug Fixes
+
+- [#5038](https://github.com/Azure/typespec-azure/pull/5038) Add the license header to emitted `.mts`/`.mjs` files (e.g. the browser and react-native static helper variants such as `get-binary-stream-response-browser.mts`), which were previously skipped because the source-code detection only matched `.ts`/`.js` extensions.
+- [#4872](https://github.com/Azure/typespec-azure/pull/4872) Fix multi-client package build failures by syncing the generated `config/tsconfig.src.*.json` `include` lists with the `warp.config.yml` exports, so every client entry point is compiled and emitted to `dist` (previously warp failed with `DIST_MISSING`).
+- [#4585](https://github.com/Azure/typespec-azure/pull/4585) [typespec-ts] fix platform import issue for customization
+- [#5162](https://github.com/Azure/typespec-azure/pull/5162) Restore blank lines between generated TypeScript declarations after batching ts-morph source-file mutations.
+
+
 ## 0.55.2
 
 ### Bug Fixes

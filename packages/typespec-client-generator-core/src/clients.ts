@@ -1,6 +1,11 @@
-import { createDiagnosticCollector, Diagnostic, getDoc, getSummary } from "@typespec/compiler";
+import { createDiagnosticCollector, type Diagnostic, getDoc, getSummary } from "@typespec/compiler";
 import { $ } from "@typespec/compiler/typekit";
-import { getServers, HttpServer } from "@typespec/http";
+import {
+  type Authentication,
+  getAuthentication,
+  getServers,
+  type HttpServer,
+} from "@typespec/http";
 import {
   getClientInitializationOptions,
   getClientNameOverride,
@@ -8,19 +13,19 @@ import {
 } from "./decorators.js";
 import { getSdkHttpParameter } from "./http.js";
 import {
-  ClientInitializationOptions,
+  type ClientInitializationOptions,
   InitializedByFlags,
-  SdkClient,
-  SdkClientInitializationType,
-  SdkClientType,
-  SdkEndpointParameter,
-  SdkEndpointType,
-  SdkEnumType,
-  SdkHttpOperation,
-  SdkPathParameter,
-  SdkServiceOperation,
-  SdkUnionType,
-  TCGCContext,
+  type SdkClient,
+  type SdkClientInitializationType,
+  type SdkClientType,
+  type SdkEndpointParameter,
+  type SdkEndpointType,
+  type SdkEnumType,
+  type SdkHttpOperation,
+  type SdkPathParameter,
+  type SdkServiceOperation,
+  type SdkUnionType,
+  type TCGCContext,
   UsageFlags,
 } from "./interfaces.js";
 import {
@@ -42,6 +47,14 @@ function getVersionsEnum(context: TCGCContext, client: SdkClient): SdkEnumType |
     return undefined;
   }
   return context.getPackageVersionSdkEnum().get(client.services[0]);
+}
+
+function getClientAuthentication(
+  context: TCGCContext,
+  client: SdkClient,
+): Authentication | undefined {
+  const service = client.services[0];
+  return service ? getAuthentication(context.program, service) : undefined;
 }
 
 function getEndpointTypeFromSingleServer<
@@ -217,6 +230,9 @@ export function createSdkClientType<TServiceOperation extends SdkServiceOperatio
     clientInitialization: diagnostics.pipe(
       createSdkClientInitializationType(context, client, parent),
     ),
+    // Multiple services currently use the first service for client-level endpoint and credential
+    // metadata. Keep authentication aligned with that behavior.
+    authentication: getClientAuthentication(context, client),
     decorators: client.type ? diagnostics.pipe(getTypeDecorators(context, client.type)) : [],
     parent,
     crossLanguageDefinitionId: getCrossLanguageDefinitionId(context, clientType),

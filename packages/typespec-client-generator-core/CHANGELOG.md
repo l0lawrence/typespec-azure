@@ -1,5 +1,60 @@
 # Change Log - @azure-tools/typespec-client-generator-core
 
+## 0.72.1
+
+### Bug Fixes
+
+- [#5509](https://github.com/Azure/typespec-azure/pull/5509) Limit SDK type resolution for model-valued decorator arguments to `@clientOption`, preventing unrelated decorators from adding models to SDK type discovery.
+
+
+## 0.72.0
+
+### Features
+
+- [#5276](https://github.com/Azure/typespec-azure/pull/5276) `@clientOption`'s `value` can now reference a TypeSpec model, in addition to `string`, `boolean`, and `number` literal values. The referenced model (including customizations such as `@alternateType`) is preserved and resolved so scoped emitters can access it via `getClientOptions`.
+- [#5173](https://github.com/Azure/typespec-azure/pull/5173) Allow `@override` to replace a client method response and add the `replaceResponseWithVoid` and `replaceResponseWithBytes` customization functions. Report response type mismatches as errors and intentional `void` or `bytes` replacements as warnings.
+- [#5305](https://github.com/Azure/typespec-azure/pull/5305) Make the `scope` argument accepted by scoped TCGC decorators evolvable via a shared, typed `Azure.ClientGenerator.Core.DecoratorOptions` model. Every scoped decorator now accepts either the legacy plain-string scope (e.g. `"csharp"`) or a typed options bag (e.g. `#{ scope: "csharp" }`), and individual decorators can later grow their own options model that extends `DecoratorOptions` without breaking others.
+  
+  `@client`'s `ClientOptions` and `@clientInitialization`'s `ClientInitializationOptions` now also accept `scope` directly (both extend `DecoratorOptions`). If the options bag scope disagrees with the legacy positional argument, TCGC reports a `conflicting-scope` warning and prefers the options bag value. Decorators that already have an options bag keep a single options bag — the legacy positional `scope` stays a plain string purely for backward compatibility. See `design-docs/decorator-options-migration.md` for migration guidance and deprecation policy.
+
+### Bug Fixes
+
+- [#5306](https://github.com/Azure/typespec-azure/pull/5306) Use an optional string with an `application/octet-stream` client default for file uploads without an explicit content type.
+
+
+## 0.71.2
+
+### Bug Fixes
+
+- [#5119](https://github.com/Azure/typespec-azure/pull/5119) Add `decorator-requires-scope` validation that warns when `@convenientAPI` is used without a "java" or "csharp" scope, and when `@clientOption` is used without any scope. This subsumes the previous `client-option-requires-scope` diagnostic.
+- [#5268](https://github.com/Azure/typespec-azure/pull/5268) Resolve cross-language definition IDs through `@alternateType`.
+- [#5270](https://github.com/Azure/typespec-azure/pull/5270) Support nested service namespaces in per-service `api-version` configuration.
+
+
+## 0.71.1
+
+### Bug Fixes
+
+- [#5215](https://github.com/Azure/typespec-azure/pull/5215) Allow C# emitters to generate operation overloads with the same client name.
+
+
+## 0.71.0
+
+### Features
+
+- [#4867](https://github.com/Azure/typespec-azure/pull/4867) Add `csharp-model-suffix` and `csharp-use-standard-acronyms` linter rules for C# SDK model naming.
+- [#4977](https://github.com/Azure/typespec-azure/pull/4977) Added `versionsEnum` field to `SdkClientType` providing a direct reference from each client to its Versions enum. This enables code generators to properly map clients to their version enums, especially for mixed api-version scenarios.
+- [#5101](https://github.com/Azure/typespec-azure/pull/5101) Add warning diagnostic when `@clientDefaultValue` value type does not match the property type
+- [#4880](https://github.com/Azure/typespec-azure/pull/4880) Replace the `no-unnamed-union` linter rule with `no-unnamed-types` in `@azure-tools/typespec-azure-core`. The new rule flags anonymous models in addition to unnamed unions, walking the type graph from operations to detect anonymous models on the client surface. The `no-unnamed-types` rule has been removed from `@azure-tools/typespec-client-generator-core`.
+- [#4882](https://github.com/Azure/typespec-azure/pull/4882) add `sseMetadata` with per-event information for server-sent event (SSE) streams
+
+### Bug Fixes
+
+- [#4979](https://github.com/Azure/typespec-azure/pull/4979) Surface `@encode(string)` on boolean types in `SdkBuiltInType` so downstream emitters can generate string-encoded boolean (de)serialization.
+- [#5027](https://github.com/Azure/typespec-azure/pull/5027) Detect operation name conflicts when multiple services are combined into one client via `@client({service: [ServiceA, ServiceB]})`. Previously only same-namespace duplicates were caught; now cross-service operation name collisions emit the existing `duplicate-client-name` diagnostic.
+- [#5146](https://github.com/Azure/typespec-azure/pull/5146) Add `wireType` to `SdkBuiltInType` interface and populate it from the `encodedAs` parameter of `@encode` for integer, boolean, and bytes types. Previously, `wireType` was only set for datetime and duration types.
+
+
 ## 0.70.0
 
 ### Features

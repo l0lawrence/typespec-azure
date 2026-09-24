@@ -1,5 +1,9 @@
-import { FinalStateValue, LroMetadata, ParameterSource } from "@azure-tools/typespec-azure-core";
 import {
+  FinalStateValue,
+  type LroMetadata,
+  type ParameterSource,
+} from "@azure-tools/typespec-azure-core";
+import type {
   DateTimeKnownEncoding,
   Diagnostic,
   DurationKnownEncoding,
@@ -18,11 +22,12 @@ import {
 } from "@typespec/compiler";
 import { unsafe_Realm } from "@typespec/compiler/experimental";
 import {
-  HttpAuth,
-  HttpOperation,
-  HttpOperationResponse,
-  HttpStatusCodeRange,
-  HttpVerb,
+  type Authentication,
+  type HttpAuth,
+  type HttpOperation,
+  type HttpOperationResponse,
+  type HttpStatusCodeRange,
+  type HttpVerb,
   Visibility,
 } from "@typespec/http";
 import type { ContextNode } from "./internal-utils.js";
@@ -30,6 +35,12 @@ import type { ContextNode } from "./internal-utils.js";
 // Types for TCGC lib
 
 type SourceKind = "RequestParameter" | "RequestBody" | "ResponseBody";
+
+export type ApiVersionConfig = string | ApiVersionServiceMap;
+
+export interface ApiVersionServiceMap {
+  [namespaceSegment: string]: string | ApiVersionServiceMap;
+}
 
 export interface TCGCContext {
   program: Program;
@@ -220,6 +231,8 @@ export interface SdkClientType<
   summary?: string;
   /** Client initialization way. */
   clientInitialization: SdkClientInitializationType;
+  /** HTTP authentication requirements declared on the service. */
+  authentication?: Authentication;
   /** Methods of the client. */
   methods: SdkMethod<TServiceOperation>[];
   /** API versions supported for current type. */
@@ -279,6 +292,8 @@ export interface SdkBuiltInType<
   kind: TKind;
   /** How to encode the type on wire. */
   encode?: string;
+  /** The type this is encoded as on the wire when `@encode` specifies an encodedAs type. */
+  wireType?: SdkBuiltInType;
   /** Client name for the type. */
   name: string;
   /** Which type this type is derived from. */
@@ -1414,6 +1429,14 @@ export interface SdkNamespace<TServiceOperation extends SdkServiceOperation> ext
 export type SdkHttpPackage = SdkPackage<SdkHttpOperation>;
 
 export type LanguageScopes = "dotnet" | "java" | "python" | "javascript" | "go" | string;
+
+/**
+ * A typed options bag accepted by scoped TCGC decorators, mirroring the `.tsp` `DecoratorOptions`
+ * model. Decorator-specific options bags can extend this to add their own settings.
+ */
+export interface DecoratorOptions {
+  scope?: LanguageScopes;
+}
 
 interface SdkExampleBase {
   kind: string;

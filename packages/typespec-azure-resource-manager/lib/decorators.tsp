@@ -223,7 +223,7 @@ extern dec armResourceCheckExistence(
  * clients.
  *
  * The optional `resourceOperationOptions` parameter provides additional options.
- * `allowStaticRoutes` turns off autoRout for the interface, so individual operations can
+ * `allowStaticRoutes` turns off autoRoute for the interface, so individual operations can
  * choose static (`@route`) or automatic (`@autoRoute`) routing.
  *
  * `resourceType: Model` specifies the resource type for the operations in the interface
@@ -322,6 +322,9 @@ model ArmFeatureFileOptions {
 
   /** The feature terms of service in Swagger */
   termsOfService?: string;
+
+  /** The API version to use for clients generated from this feature file */
+  version?: string;
 }
 
 /**

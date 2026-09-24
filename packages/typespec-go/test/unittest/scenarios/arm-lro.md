@@ -129,6 +129,9 @@ type LROClient struct {
 //   - credential - used to authorize requests. Usually a credential from azidentity.
 //   - options - Contains optional client configuration. Pass nil to accept the default values.
 func NewLROClient(subscriptionID string, credential azcore.TokenCredential, options *arm.ClientOptions) (*LROClient, error) {
+	if subscriptionID == "" {
+		return nil, errors.New("parameter subscriptionID cannot be empty")
+	}
 	cl, err := arm.NewClient(moduleName, moduleVersion, credential, options)
 	if err != nil {
 		return nil, err
@@ -160,7 +163,7 @@ func (client *LROClient) BeginOkResponseWithAsyncHeader(ctx context.Context, api
 	}
 }
 
-// OkResponseWithAsyncHeader - Create a TestLROModel
+// okResponseWithAsyncHeader - Create a TestLROModel
 // If the operation fails it returns an *azcore.ResponseError type.
 func (client *LROClient) okResponseWithAsyncHeader(ctx context.Context, apiVersion string, resourceGroupName string, lroModelName string, resource TestLROModel, options *LROClientBeginOkResponseWithAsyncHeaderOptions) (*http.Response, error) {
 	var err error
@@ -173,17 +176,16 @@ func (client *LROClient) okResponseWithAsyncHeader(ctx context.Context, apiVersi
 		return nil, err
 	}
 	if !runtime.HasStatusCode(httpResp, http.StatusOK, http.StatusCreated) {
-		err = runtime.NewResponseError(httpResp)
-		return nil, err
+		return nil, runtime.NewResponseError(httpResp)
 	}
 	return httpResp, nil
 }
 
-// okResponseWithAsyncHeaderCreateRequest creates the OkResponseWithAsyncHeader request.
+// okResponseWithAsyncHeaderCreateRequest creates the okResponseWithAsyncHeader request.
 func (client *LROClient) okResponseWithAsyncHeaderCreateRequest(ctx context.Context, apiVersion string, resourceGroupName string, lroModelName string, resource TestLROModel, _ *LROClientBeginOkResponseWithAsyncHeaderOptions) (*policy.Request, error) {
 	urlPath := "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Test/LROModels/{LROModelName}"
 	if client.subscriptionID == "" {
-		return nil, errors.New("parameter client.subscriptionID cannot be empty")
+		return nil, errors.New("parameter subscriptionID cannot be empty")
 	}
 	urlPath = strings.ReplaceAll(urlPath, "{subscriptionId}", url.PathEscape(client.subscriptionID))
 	if resourceGroupName == "" {
@@ -226,7 +228,7 @@ func (client *LROClient) BeginScalarResult(ctx context.Context, apiVersion strin
 	}
 }
 
-// ScalarResult -
+// scalarResult -
 // If the operation fails it returns an *azcore.ResponseError type.
 func (client *LROClient) scalarResult(ctx context.Context, apiVersion string, resourceGroupName string, lroModelName string, body ActionRequest, options *LROClientBeginScalarResultOptions) (*http.Response, error) {
 	var err error
@@ -239,17 +241,16 @@ func (client *LROClient) scalarResult(ctx context.Context, apiVersion string, re
 		return nil, err
 	}
 	if !runtime.HasStatusCode(httpResp, http.StatusOK, http.StatusAccepted) {
-		err = runtime.NewResponseError(httpResp)
-		return nil, err
+		return nil, runtime.NewResponseError(httpResp)
 	}
 	return httpResp, nil
 }
 
-// scalarResultCreateRequest creates the ScalarResult request.
+// scalarResultCreateRequest creates the scalarResult request.
 func (client *LROClient) scalarResultCreateRequest(ctx context.Context, apiVersion string, resourceGroupName string, lroModelName string, body ActionRequest, _ *LROClientBeginScalarResultOptions) (*policy.Request, error) {
 	urlPath := "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Test/LROModels/{LROModelName}/scalarResult"
 	if client.subscriptionID == "" {
-		return nil, errors.New("parameter client.subscriptionID cannot be empty")
+		return nil, errors.New("parameter subscriptionID cannot be empty")
 	}
 	urlPath = strings.ReplaceAll(urlPath, "{subscriptionId}", url.PathEscape(client.subscriptionID))
 	if resourceGroupName == "" {
