@@ -18,20 +18,6 @@ Make sure to run the following commands:
 
 - `pnpm format`
 
-## Syncing SSE test fixtures
-
-Run `pnpm sync` from this package to copy the shared regeneration helper and mock API tests
-from the pinned `core/` submodule. Commit those snapshots together with any required submodule
-update; generated SDK packages are not committed.
-
-The `streaming/sse` spec generates two fixtures for both Azure and unbranded clients:
-`streaming-sse` explicitly sets `enable-sse-reconnect: true` for reconnection tests, while
-`streaming-sse-no-reconnect` omits the option to test the default single-response behavior
-and event metadata. Run `pnpm regenerate --name streaming` to regenerate these fixtures and
-the JSONL fixture. This requires an unbranded emitter release containing
-[microsoft/typespec#12150](https://github.com/microsoft/typespec/pull/12150); an older emitter
-does not recognize the option.
-
 ## Release Process
 
 The branded Python emitter (`@azure-tools/typespec-python`) wraps the unbranded emitter (`@typespec/http-client-python`). There is no separate release of the branded emitter, unless there is a breaking change or the highest version value changes (ie. 0.3.0 -> 0.4.0 or 1.0.0 to 2.0.0); instead, the release process involves updating the dependency on the unbranded emitter.
